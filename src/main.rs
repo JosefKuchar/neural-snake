@@ -2,26 +2,139 @@ extern crate rand;
 
 use rand::Rng;
 use rand::distributions::{IndependentSample, Range};
+use std::f32;
 
 fn main() {
     let mut network = Network::new(&[2, 2, 1]);
+    let mut dna_pool = DnaPool::new(20, 8);
 
+    println!("{:?}", std::u32::MAX);
     loop {
-        let dna = Dna::new(8);
+        //let dna = Dna::new(8);
 
-        network.update_weights(dna.genomes);
+        network.update_weights(dna_pool.request());
 
         let mut results: Vec<f32> = Vec::new();
-        results.push(network.run(&[-1f32, -1f32])[0]);
-        results.push(network.run(&[-1f32, 1f32])[0]);
-        results.push(network.run(&[1f32, -1f32])[0]);
-        results.push(network.run(&[1f32, 1f32])[0]);
+        results.push(network.run(vec![-1f32, -1f32])[0]);
+        results.push(network.run(vec![ 1f32, -1f32])[0]);
+        results.push(network.run(vec![-1f32,  1f32])[0]);
+        results.push(network.run(vec![ 1f32,  1f32])[0]);
 
-        if results[0] < 0f32 && results[1] > 0f32 && results[2] > 0f32 && results[3] < 0f32 {
-            println!("{:?}", network.weights);
-            println!("{:?}", results);
-            break;
+        let mut reward = 0f32;
+
+        if results[0] < 0f32{
+            reward += 1f32;
         }
+
+        if results[1] > 0f32 {
+            reward += 1f32;
+        }
+
+        if results[2] > 0f32 {
+            reward += 1f32;
+        }
+
+        if results[3] < 0f32 {
+            reward += 1f32;
+        }
+
+
+        let mut error = 0f32;
+        error += (1f32 + results[0]).abs();
+        error += (-1f32 + results[1]).abs();
+        error += (-1f32 + results[2]).abs();
+        error += (1f32 + results[3]).abs();
+        
+
+        if reward >= 4f32 {
+            println!("{:?} {:?}", network.weights, results);
+        }
+
+        println!("{}", reward);
+
+        dna_pool.evaluate(reward);
+    }
+}
+
+struct DnaPool {
+    pool: Vec<Dna>,
+    index: usize,
+    pool_size: usize,
+    dna_size: usize
+}
+
+impl DnaPool {
+    pub fn new(pool_size: usize, dna_size: usize) -> DnaPool {
+        let mut pool: Vec<Dna> = Vec::new();
+
+        for _ in 0..pool_size {
+            pool.push(Dna::new(dna_size));
+        }
+
+        return DnaPool {
+            pool: pool,
+            index: 0,
+            pool_size: pool_size,
+            dna_size: dna_size
+        }
+    }
+
+    pub fn request(&self) -> &Vec<f32> {
+        let dna = &self.pool[self.index];
+        return &dna.genomes;
+    }
+
+    pub fn evaluate(&mut self, fitness: f32) {
+        self.pool[self.index].fitness = fitness;
+        self.index += 1;
+
+        if self.index >= self.pool_size {
+            self.index = 0;
+            self.evolve();
+        }
+    }
+
+    fn pick_random(&self, sum: f32, rnd: f32) -> &Dna {
+        let mut rnd = rnd;
+        for dna in self.pool.iter() {
+            if rnd < dna.fitness {
+                return dna;
+            }
+            rnd -= dna.fitness;
+        }
+        panic!("Weighted random generator error");
+    }
+
+    fn normalize_weights(&mut self) {
+        let mut max = 1f32;
+        for dna in self.pool.iter() {
+            if dna.fitness > max {
+                max = dna.fitness;
+            }
+        }
+
+        for dna in self.pool.iter_mut() {
+            dna.fitness /= max;
+        }
+    }
+
+    fn evolve(&mut self) {
+        //self.normalize_weights();
+        let sum = self.pool.iter().fold(0f32, |sum, dna| sum + dna.fitness);
+        let mut rng = rand::thread_rng();
+        let range = Range::new(0f32, sum);
+        let mut new_pool: Vec<Dna> = Vec::with_capacity(self.pool_size);
+
+        for _ in 0..self.pool_size {
+            let a = self.pick_random(sum, range.ind_sample(&mut rng));
+            let b = self.pick_random(sum, range.ind_sample(&mut rng));
+
+            let mut child = a.crossover(b);
+            child.mutate();
+            new_pool.push(child);
+        }
+
+        self.pool = new_pool;    
     }
 }
 
@@ -106,8 +219,8 @@ impl Network {
         return Network { weights: layers };
     }
 
-    pub fn run(&self, input: &[f32]) -> Vec<f32> {
-        let mut result: Vec<f32> = input.to_vec();
+    pub fn run(&self, input: Vec<f32>) -> Vec<f32> {
+        let mut result = input;
 
         for layer in &self.weights {
             let mut current: Vec<f32> = Vec::new();
@@ -132,7 +245,7 @@ impl Network {
         return result;
     }
 
-    pub fn update_weights(&mut self, weights: Vec<f32>) {
+    pub fn update_weights(&mut self, weights: &Vec<f32>) {
         let mut index = 0;
         for layer in self.weights.iter_mut() {
             for node in layer {
