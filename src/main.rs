@@ -9,7 +9,7 @@ use rand::distributions::{IndependentSample, Range};
 use std::collections::VecDeque;
 use piston_window::*;
 use opengl_graphics::OpenGL;
-use image::{ImageBuffer, Rgba, RGBA};
+use image::{ImageBuffer, Rgba};
 use texture::Filter;
 
 fn main() {
@@ -61,6 +61,8 @@ fn main() {
                 }
             }
 
+            canvas.put_pixel(snake.board.food.x as u32, snake.board.food.y as u32, Rgba([255, 0, 0, 255]));
+
             for point in snake.parts.iter() {
                 canvas.put_pixel(point.x as u32, point.y as u32, Rgba([0, 0, 0, 255]));
             }
@@ -90,6 +92,13 @@ impl PartialEq for Point {
 impl Point {
     pub fn new(x: isize, y: isize) -> Point {
         return Point { x: x, y: y };
+    }
+
+    pub fn random(max_x: usize, max_y: usize) -> Point {
+        let rangeX = Range::new(0, max_x);
+        let rangeY = Range::new(0, max_y);
+        let mut rng = rand::thread_rng();
+        return Point::new(rangeX.ind_sample(&mut rng) as isize, rangeY.ind_sample(&mut rng) as isize);
     }
 }
 
@@ -134,6 +143,7 @@ impl Snake {
     fn check_collisions(&mut self) {
         if !self.in_bounds() || self.self_collision() {
             self.alive = false;
+            return
         }
     }
 
@@ -182,7 +192,12 @@ impl Snake {
         }
 
         self.parts.push_front(new_head);
-        self.parts.pop_back();
+
+        if *self.parts.front().unwrap() != self.board.food {
+            self.parts.pop_back();
+        } else {
+            self.board.regenerate_food(&self.parts);
+        }
         self.check_collisions();
     }
 
@@ -205,8 +220,21 @@ impl Board {
         return Board {
             width: width,
             height: height,
-            food: Point::new(1, 1),
+            food: Point::new(10, 10),
         };
+    }
+
+    pub fn regenerate_food(&mut self, snake_parts: &VecDeque<Point>) {
+        loop {
+            let point = Point::random(self.width, self.height);
+            for part in snake_parts {
+                if point == *part {
+                    continue;
+                }
+            }
+            self.food = point;
+            return;
+        }
     }
 }
 
@@ -214,8 +242,7 @@ struct DnaPool {
     pool: Vec<Dna>,
     index: usize,
     pool_size: usize,
-    dna_size: usize,
-    best: Dna,
+    best: Dna
 }
 
 impl DnaPool {
@@ -230,7 +257,6 @@ impl DnaPool {
             pool: pool,
             index: 0,
             pool_size: pool_size,
-            dna_size: dna_size,
             best: Dna::new(dna_size),
         };
     }
