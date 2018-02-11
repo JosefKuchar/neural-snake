@@ -1,58 +1,212 @@
+extern crate image;
+extern crate opengl_graphics;
+extern crate piston;
+extern crate piston_window;
 extern crate rand;
 
 use rand::Rng;
 use rand::distributions::{IndependentSample, Range};
-use std::f32;
+use std::collections::VecDeque;
+use piston_window::*;
+use opengl_graphics::OpenGL;
+use image::{ImageBuffer, Rgba, RGBA};
+use texture::Filter;
 
 fn main() {
-    let mut network = Network::new(&[2, 2, 1]);
-    let mut dna_pool = DnaPool::new(20, 8);
+    let mut network = Network::new(&[4, 6, 6, 3]);
+    let mut dna_pool = DnaPool::new(30, network.weight_count);
+    network.update_weights(dna_pool.request());
 
-    println!("{:?}", std::u32::MAX);
-    loop {
-        //let dna = Dna::new(8);
+    let board = Board::new(20, 20);
+    let mut snake = Snake::new(board);
 
-        network.update_weights(dna_pool.request());
+    println!("{:?}", snake.parts);
 
-        let mut results: Vec<f32> = Vec::new();
-        results.push(network.run(vec![-1f32, -1f32])[0]);
-        results.push(network.run(vec![ 1f32, -1f32])[0]);
-        results.push(network.run(vec![-1f32,  1f32])[0]);
-        results.push(network.run(vec![ 1f32,  1f32])[0]);
+    let mut canvas = ImageBuffer::new(snake.board.width as u32, snake.board.height as u32);
+    let opengl = OpenGL::V3_2;
+    let mut window: PistonWindow = WindowSettings::new("Neural Snake", [640, 480])
+        .opengl(opengl)
+        .build()
+        .unwrap();
+    let mut texture = Texture::from_image(
+        &mut window.factory,
+        &canvas,
+        &TextureSettings::new().filter(Filter::Nearest),
+    ).unwrap();
 
-        let mut reward = 0f32;
+    let mut counter = 0;
 
-        if results[0] < 0f32{
-            reward += 1f32;
+    while let Some(e) = window.next() {
+        if let Some(_) = e.update_args() {
+            if counter % 30 == 0 {
+                let inputs = snake.get_inputs();
+                let outputs = network.run(inputs);
+                snake.apply_outputs(outputs);
+                snake.update();
+
+                if !snake.alive {
+                    dna_pool.evaluate(snake.parts.len() as f32);
+                    network.update_weights(dna_pool.request());
+                    snake.reset();
+                }
+            }
+            
+            counter += 1; 
         }
 
-        if results[1] > 0f32 {
-            reward += 1f32;
+        if let Some(_) = e.render_args() {
+            for x in 0..snake.board.width {
+                for y in 0..snake.board.height {
+                    canvas.put_pixel(x as u32, y as u32, Rgba([255, 255, 255, 255]));
+                }
+            }
+
+            for point in snake.parts.iter() {
+                canvas.put_pixel(point.x as u32, point.y as u32, Rgba([0, 0, 0, 255]));
+            }
+
+            texture.update(&mut window.encoder, &canvas).unwrap();
+
+            window.draw_2d(&e, |c, g| {
+                clear([0.0; 4], g);
+                image(&texture, c.transform.scale(30f64, 30f64), g);
+            });
+        }
+    }
+}
+
+#[derive(Debug, Clone, Eq)]
+struct Point {
+    x: isize,
+    y: isize,
+}
+
+impl PartialEq for Point {
+    fn eq(&self, point: &Point) -> bool {
+        return self.x == point.x && self.y == point.y;
+    }
+}
+
+impl Point {
+    pub fn new(x: isize, y: isize) -> Point {
+        return Point { x: x, y: y };
+    }
+}
+
+struct Snake {
+    direction: usize,
+    parts: VecDeque<Point>,
+    board: Board,
+    alive: bool,
+}
+
+impl Snake {
+    pub fn new(board: Board) -> Snake {
+        let mut parts: VecDeque<Point> = VecDeque::new();
+        parts.push_front(Point::new(9, 9));
+
+        return Snake {
+            direction: 0,
+            parts: parts,
+            board: board,
+            alive: true,
+        };
+    }
+
+    fn in_bounds(&self) -> bool {
+        let head = self.parts.front().unwrap();
+        return head.x >= 0 && head.y >= 0 && head.x < self.board.width as isize
+            && head.y < self.board.height as isize;
+    }
+
+    fn self_collision(&self) -> bool {
+        let head = self.parts.front().unwrap();
+
+        for part in self.parts.iter().skip(1) {
+            if part == head {
+                return true;
+            }
         }
 
-        if results[2] > 0f32 {
-            reward += 1f32;
+        return false;
+    }
+
+    fn check_collisions(&mut self) {
+        if !self.in_bounds() || self.self_collision() {
+            self.alive = false;
+        }
+    }
+
+    fn get_inputs(&self) -> Vec<f32> {
+        let mut inputs = Vec::with_capacity(4);
+        inputs.push(0f32);
+        inputs.push(0f32);
+        inputs.push(0f32);
+        inputs.push(0f32);
+        return inputs;
+    }
+
+    fn apply_outputs(&mut self, outputs: Vec<f32>) {
+        let mut max = -1f32;
+        let mut max_index = 0;
+        for (index, output) in outputs.iter().enumerate() {
+            if *output > max {
+                max = *output;
+                max_index = index;
+            }
         }
 
-        if results[3] < 0f32 {
-            reward += 1f32;
+        match max_index {
+            0 => self.direction += 3,
+            1 => {},
+            2 => self.direction += 1,
+            _ => panic!("Invalid direction index")
         }
 
+        self.direction %= 4;
+    }
 
-        let mut error = 0f32;
-        error += (1f32 + results[0]).abs();
-        error += (-1f32 + results[1]).abs();
-        error += (-1f32 + results[2]).abs();
-        error += (1f32 + results[3]).abs();
-        
+    pub fn update(&mut self) {
+        if !self.alive {
+            return;
+        };
 
-        if reward >= 4f32 {
-            println!("{:?} {:?}", network.weights, results);
+        let mut new_head = self.parts.front().unwrap().clone();
+
+        match self.direction {
+            0 => new_head.y -= 1,
+            1 => new_head.x += 1,
+            2 => new_head.y += 1,
+            3 => new_head.x -= 1,
+            _ => panic!("Invalid snake direction"),
         }
 
-        println!("{}", reward);
+        self.parts.push_front(new_head);
+        self.parts.pop_back();
+        self.check_collisions();
+    }
 
-        dna_pool.evaluate(reward);
+    pub fn reset(&mut self) {
+        self.alive = true;
+        self.parts = VecDeque::new();
+        self.parts.push_front(Point::new(9, 9));
+        self.direction = 0;
+    }
+}
+
+struct Board {
+    width: usize,
+    height: usize,
+    food: Point,
+}
+
+impl Board {
+    pub fn new(width: usize, height: usize) -> Board {
+        return Board {
+            width: width,
+            height: height,
+            food: Point::new(1, 1),
+        };
     }
 }
 
@@ -60,7 +214,8 @@ struct DnaPool {
     pool: Vec<Dna>,
     index: usize,
     pool_size: usize,
-    dna_size: usize
+    dna_size: usize,
+    best: Dna,
 }
 
 impl DnaPool {
@@ -75,8 +230,9 @@ impl DnaPool {
             pool: pool,
             index: 0,
             pool_size: pool_size,
-            dna_size: dna_size
-        }
+            dna_size: dna_size,
+            best: Dna::new(dna_size),
+        };
     }
 
     pub fn request(&self) -> &Vec<f32> {
@@ -86,6 +242,10 @@ impl DnaPool {
 
     pub fn evaluate(&mut self, fitness: f32) {
         self.pool[self.index].fitness = fitness;
+        if fitness > self.best.fitness {
+            self.best = self.pool[self.index].clone();
+        }
+
         self.index += 1;
 
         if self.index >= self.pool_size {
@@ -134,10 +294,11 @@ impl DnaPool {
             new_pool.push(child);
         }
 
-        self.pool = new_pool;    
+        self.pool = new_pool;
     }
 }
 
+#[derive(Debug, Clone)]
 struct Dna {
     genomes: Vec<f32>,
     fitness: f32,
@@ -192,10 +353,12 @@ impl Dna {
 
 struct Network {
     weights: Vec<Vec<Vec<f32>>>,
+    weight_count: usize,
 }
 
 impl Network {
     pub fn new(sizes: &[usize]) -> Network {
+        let mut weight_count = 0;
         let mut layers: Vec<Vec<Vec<f32>>> = Vec::new();
         for i in 0..(sizes.len() - 1) {
             let mut layer: Vec<Vec<f32>> = Vec::new();
@@ -203,10 +366,12 @@ impl Network {
                 let mut node: Vec<f32> = Vec::new();
                 for _ in 0..sizes[i] {
                     node.push(0f32);
+                    weight_count += 1;
                 }
 
                 if i != sizes.len() - 2 {
                     node.push(0f32);
+                    weight_count += 1;
                 }
 
                 node.shrink_to_fit();
@@ -216,13 +381,16 @@ impl Network {
             layers.push(layer);
         }
 
-        return Network { weights: layers };
+        return Network {
+            weights: layers,
+            weight_count: weight_count,
+        };
     }
 
     pub fn run(&self, input: Vec<f32>) -> Vec<f32> {
         let mut result = input;
 
-        for layer in &self.weights {
+        for (i, layer) in self.weights.iter().enumerate() {
             let mut current: Vec<f32> = Vec::new();
 
             for node in layer {
@@ -230,13 +398,16 @@ impl Network {
                 for (index, weight) in node.iter().enumerate() {
                     if index >= result.len() {
                         sum += weight;
-                        continue;
+                        break;
                     }
-
                     sum += result[index] * weight;
                 }
                 //println!("{}", sum);
-                current.push(tanh(sum));
+                if i < self.weights.len() - 1 {
+                    sum = tanh(sum);
+                }
+
+                current.push(sum);
             }
 
             result = current;

@@ -5,3 +5,7 @@ authors = ["Josef Kuchař <josef.kuchar267@gmail.com>"]
 
 [dependencies]
 rand = "0.4.2"
+piston = "0.35.0"
+piston_window = "0.75.0"
+piston2d-opengl_graphics = "0.50.0"
+image = "0.18.0"
