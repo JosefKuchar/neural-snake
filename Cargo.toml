@@ -1,5 +1,5 @@
 [package]
-name = "NeuralSnake"
+name = "neural_snake"
 version = "0.1.0"
 authors = ["Josef Kuchař <josef.kuchar267@gmail.com>"]
 

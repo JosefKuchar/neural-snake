@@ -11,6 +11,7 @@ use piston_window::*;
 use opengl_graphics::OpenGL;
 use image::{ImageBuffer, Rgba};
 use texture::Filter;
+use std::f32;
 
 fn main() {
     let mut network = Network::new(&[4, 6, 6, 3]);
@@ -38,7 +39,7 @@ fn main() {
 
     while let Some(e) = window.next() {
         if let Some(_) = e.update_args() {
-            if counter % 30 == 0 {
+            if counter % 120 == 0 {
                 let inputs = snake.get_inputs();
                 let outputs = network.run(inputs);
                 snake.apply_outputs(outputs);
@@ -147,16 +148,43 @@ impl Snake {
         }
     }
 
-    fn get_inputs(&self) -> Vec<f32> {
+    fn get_food_input(&self) -> f32 {
+        let head = self.parts.front().unwrap();
+        let food = &self.board.food;
+        let x = food.x - head.x;
+        let y = food.y - head.y;
+        let vector = (y as f32).atan2(x as f32);
+
+        let direction = match self.direction {
+            0 => f32::consts::PI / 2f32,
+            1 => 0f32,
+            2 => -f32::consts::PI / 2f32,
+            3 => -f32::consts::PI,
+            _ => panic!("Invalid direction")
+        };
+
+        println!("{}", self.direction);
+        /*
+        if vector + direction > f32::consts::PI {
+            return -(vector + direction) + (f32::consts::PI)
+        }*/
+
+        return vector + direction;
+    }
+
+    pub fn get_inputs(&self) -> Vec<f32> {
         let mut inputs = Vec::with_capacity(4);
         inputs.push(0f32);
         inputs.push(0f32);
         inputs.push(0f32);
-        inputs.push(0f32);
+        inputs.push(self.get_food_input());
+
+        println!("{}", self.get_food_input());
+
         return inputs;
     }
 
-    fn apply_outputs(&mut self, outputs: Vec<f32>) {
+    pub fn apply_outputs(&mut self, outputs: Vec<f32>) {
         let mut max = -1f32;
         let mut max_index = 0;
         for (index, output) in outputs.iter().enumerate() {
@@ -220,7 +248,7 @@ impl Board {
         return Board {
             width: width,
             height: height,
-            food: Point::new(10, 10),
+            food: Point::new(8, 10),
         };
     }
 
