@@ -15,13 +15,11 @@ use std::f32;
 
 fn main() {
     let mut network = Network::new(&[4, 6, 6, 3]);
-    let mut dna_pool = DnaPool::new(30, network.weight_count);
+    let mut dna_pool = DnaPool::new(50, network.weight_count);
     network.update_weights(dna_pool.request());
 
     let board = Board::new(20, 20);
     let mut snake = Snake::new(board);
-
-    println!("{:?}", snake.parts);
 
     let mut canvas = ImageBuffer::new(snake.board.width as u32, snake.board.height as u32);
     let opengl = OpenGL::V3_2;
@@ -35,15 +33,16 @@ fn main() {
         &TextureSettings::new().filter(Filter::Nearest),
     ).unwrap();
 
-    let mut counter = 0;
-
+    let mut speed = 1;
     while let Some(e) = window.next() {
         if let Some(_) = e.update_args() {
-            if counter % 120 == 0 {
+            for _ in 0..speed {
+                //println!("{}", snake.direction);
                 let inputs = snake.get_inputs();
                 let outputs = network.run(inputs);
                 snake.apply_outputs(outputs);
                 snake.update();
+                //println!("{}", snake.direction);
 
                 if !snake.alive {
                     dna_pool.evaluate(snake.parts.len() as f32);
@@ -51,8 +50,6 @@ fn main() {
                     snake.reset();
                 }
             }
-            
-            counter += 1; 
         }
 
         if let Some(_) = e.render_args() {
@@ -62,7 +59,11 @@ fn main() {
                 }
             }
 
-            canvas.put_pixel(snake.board.food.x as u32, snake.board.food.y as u32, Rgba([255, 0, 0, 255]));
+            canvas.put_pixel(
+                snake.board.food.x as u32,
+                snake.board.food.y as u32,
+                Rgba([255, 0, 0, 255]),
+            );
 
             for point in snake.parts.iter() {
                 canvas.put_pixel(point.x as u32, point.y as u32, Rgba([0, 0, 0, 255]));
@@ -75,6 +76,16 @@ fn main() {
                 image(&texture, c.transform.scale(30f64, 30f64), g);
             });
         }
+
+        e.mouse_scroll(|_, y| {
+            if y > 0f64 {
+                speed += 100;
+            } else if speed > 1 {
+                speed -= 100;
+            }
+
+            println!("{}", speed);
+        });
     }
 }
 
@@ -99,7 +110,10 @@ impl Point {
         let rangeX = Range::new(0, max_x);
         let rangeY = Range::new(0, max_y);
         let mut rng = rand::thread_rng();
-        return Point::new(rangeX.ind_sample(&mut rng) as isize, rangeY.ind_sample(&mut rng) as isize);
+        return Point::new(
+            rangeX.ind_sample(&mut rng) as isize,
+            rangeY.ind_sample(&mut rng) as isize,
+        );
     }
 }
 
@@ -108,6 +122,7 @@ struct Snake {
     parts: VecDeque<Point>,
     board: Board,
     alive: bool,
+    steps_without_food: usize,
 }
 
 impl Snake {
@@ -120,6 +135,7 @@ impl Snake {
             parts: parts,
             board: board,
             alive: true,
+            steps_without_food: 0,
         };
     }
 
@@ -144,7 +160,7 @@ impl Snake {
     fn check_collisions(&mut self) {
         if !self.in_bounds() || self.self_collision() {
             self.alive = false;
-            return
+            return;
         }
     }
 
@@ -156,20 +172,29 @@ impl Snake {
         let vector = (y as f32).atan2(x as f32);
 
         let direction = match self.direction {
-            0 => f32::consts::PI / 2f32,
-            1 => 0f32,
-            2 => -f32::consts::PI / 2f32,
-            3 => -f32::consts::PI,
-            _ => panic!("Invalid direction")
+            0 => 0f32,
+            1 => -f32::consts::PI / 2f32,
+            2 => -f32::consts::PI,
+            3 => f32::consts::PI / 2f32,
+            _ => panic!("Invalid direction"),
         };
 
-        println!("{}", self.direction);
+        let mut sum = vector + direction;
+
+        if sum > f32::consts::PI {
+            sum -= -f32::consts::PI;
+        } else if sum < -f32::consts::PI {
+            sum += f32::consts::PI;
+        }
+
+        //println!("{}", sum / f32::consts::PI);
+
         /*
         if vector + direction > f32::consts::PI {
             return -(vector + direction) + (f32::consts::PI)
         }*/
 
-        return vector + direction;
+        return sum / f32::consts::PI;
     }
 
     pub fn get_inputs(&self) -> Vec<f32> {
@@ -179,7 +204,7 @@ impl Snake {
         inputs.push(0f32);
         inputs.push(self.get_food_input());
 
-        println!("{}", self.get_food_input());
+        //println!("{}", self.get_food_input());
 
         return inputs;
     }
@@ -196,9 +221,9 @@ impl Snake {
 
         match max_index {
             0 => self.direction += 3,
-            1 => {},
+            1 => {}
             2 => self.direction += 1,
-            _ => panic!("Invalid direction index")
+            _ => panic!("Invalid direction index"),
         }
 
         self.direction %= 4;
@@ -212,20 +237,29 @@ impl Snake {
         let mut new_head = self.parts.front().unwrap().clone();
 
         match self.direction {
-            0 => new_head.y -= 1,
-            1 => new_head.x += 1,
-            2 => new_head.y += 1,
-            3 => new_head.x -= 1,
+            0 => new_head.x += 1,
+            1 => new_head.y += 1,
+            2 => new_head.x -= 1,
+            3 => new_head.y -= 1,
             _ => panic!("Invalid snake direction"),
         }
 
         self.parts.push_front(new_head);
 
+        self.steps_without_food += 1;
+
         if *self.parts.front().unwrap() != self.board.food {
             self.parts.pop_back();
         } else {
             self.board.regenerate_food(&self.parts);
+            self.steps_without_food = 0;
         }
+
+        if self.steps_without_food > 300 {
+            self.alive = false;
+            return;
+        }
+
         self.check_collisions();
     }
 
@@ -234,6 +268,7 @@ impl Snake {
         self.parts = VecDeque::new();
         self.parts.push_front(Point::new(9, 9));
         self.direction = 0;
+        self.steps_without_food = 0;
     }
 }
 
@@ -248,7 +283,7 @@ impl Board {
         return Board {
             width: width,
             height: height,
-            food: Point::new(8, 10),
+            food: Point::random(width, height),
         };
     }
 
@@ -270,7 +305,7 @@ struct DnaPool {
     pool: Vec<Dna>,
     index: usize,
     pool_size: usize,
-    best: Dna
+    best: Dna,
 }
 
 impl DnaPool {
@@ -335,6 +370,10 @@ impl DnaPool {
     fn evolve(&mut self) {
         //self.normalize_weights();
         let sum = self.pool.iter().fold(0f32, |sum, dna| sum + dna.fitness);
+        println!(
+            "Generation evolution, avg fitness: {}",
+            sum / self.pool.len() as f32
+        );
         let mut rng = rand::thread_rng();
         let range = Range::new(0f32, sum);
         let mut new_pool: Vec<Dna> = Vec::with_capacity(self.pool_size);
@@ -394,7 +433,7 @@ impl Dna {
 
     pub fn mutate(&mut self) {
         let mut rng = rand::thread_rng();
-        let range = Range::new(0, 100);
+        let range = Range::new(0, 200);
         let genome_range = Range::new(-1f32, 1f32);
 
         for genome in self.genomes.iter_mut() {
