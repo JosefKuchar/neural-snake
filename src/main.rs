@@ -14,7 +14,7 @@ use texture::Filter;
 use std::f32;
 
 fn main() {
-    let mut network = Network::new(&[4, 6, 6, 3]);
+    let mut network = Network::new(&[4, 7, 7, 7, 3]);
     let mut dna_pool = DnaPool::new(50, network.weight_count);
     network.update_weights(dna_pool.request());
 
@@ -157,6 +157,15 @@ impl Snake {
         return false;
     }
 
+    fn touching(&self, x: isize, y: isize) -> bool {
+        for part in self.parts.iter() {
+            if part.x == x && part.y == y  {
+                return true;
+            }
+        }
+        return false;
+    }
+
     fn check_collisions(&mut self) {
         if !self.in_bounds() || self.self_collision() {
             self.alive = false;
@@ -197,10 +206,9 @@ impl Snake {
         loop {
             let x = head.x + DIRECTIONS[direction][0] * i;
             let y = head.y + DIRECTIONS[direction][1] * i;
-            if (!self.board.in_bounds(x, y)) {
+            if !self.board.in_bounds(x, y) || self.touching(x, y) {
                 // FIXME: This works only if board is square
-                //return (i - 1) as usize;
-                return ((i - 1) as f32 / (self.board.width as f32 - 0.5f32)) - 1f32;
+                return 1f32 - ((i - 1) as f32 / (self.board.width as f32 - 0.5f32));
             }
             i += 1;
         }
@@ -211,7 +219,7 @@ impl Snake {
         let left = self.peek_at((self.direction + 3) % 4);
         let right = self.peek_at((self.direction + 1) % 4);
 
-        return vec![front, left, right];
+        return vec![front, 0f32, 0f32];
     }
 
     pub fn get_inputs(&self) -> Vec<f32> {
@@ -269,7 +277,7 @@ impl Snake {
             self.steps_without_food = 0;
         }
 
-        if self.steps_without_food > 300 {
+        if self.steps_without_food > 500 {
             self.alive = false;
             return;
         }
@@ -388,6 +396,8 @@ impl DnaPool {
     fn evolve(&mut self) {
         //self.normalize_weights();
         let sum = self.pool.iter().fold(0f32, |sum, dna| sum + dna.fitness);
+
+
         println!(
             "Generation evolution, avg fitness: {}",
             sum / self.pool.len() as f32
@@ -396,7 +406,7 @@ impl DnaPool {
         let range = Range::new(0f32, sum);
         let mut new_pool: Vec<Dna> = Vec::with_capacity(self.pool_size);
 
-        for _ in 0..self.pool_size {
+        for _ in 0..self.pool_size-1 {
             let a = self.pick_random(sum, range.ind_sample(&mut rng));
             let b = self.pick_random(sum, range.ind_sample(&mut rng));
 
@@ -404,6 +414,8 @@ impl DnaPool {
             child.mutate();
             new_pool.push(child);
         }
+
+        new_pool.push(self.best.clone());
 
         self.pool = new_pool;
     }
@@ -451,7 +463,7 @@ impl Dna {
 
     pub fn mutate(&mut self) {
         let mut rng = rand::thread_rng();
-        let range = Range::new(0, 200);
+        let range = Range::new(0, 550);
         let genome_range = Range::new(-1f32, 1f32);
 
         for genome in self.genomes.iter_mut() {
