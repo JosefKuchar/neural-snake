@@ -187,24 +187,38 @@ impl Snake {
             sum += f32::consts::PI;
         }
 
-        //println!("{}", sum / f32::consts::PI);
-
-        /*
-        if vector + direction > f32::consts::PI {
-            return -(vector + direction) + (f32::consts::PI)
-        }*/
-
         return sum / f32::consts::PI;
+    }
+
+    fn peek_at(&self, direction: usize) -> f32 {
+        const DIRECTIONS: [[isize; 2]; 4] = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+        let head = self.parts.front().unwrap();
+        let mut i = 1;
+        loop {
+            let x = head.x + DIRECTIONS[direction][0] * i;
+            let y = head.y + DIRECTIONS[direction][1] * i;
+            if (!self.board.in_bounds(x, y)) {
+                // FIXME: This works only if board is square
+                //return (i - 1) as usize;
+                return ((i - 1) as f32 / (self.board.width as f32 - 0.5f32)) - 1f32;
+            }
+            i += 1;
+        }
+    }
+
+    fn get_distance_inputs(&self) -> Vec<f32> {
+        let front = self.peek_at(self.direction);
+        let left = self.peek_at((self.direction + 3) % 4);
+        let right = self.peek_at((self.direction + 1) % 4);
+
+        return vec![front, left, right];
     }
 
     pub fn get_inputs(&self) -> Vec<f32> {
         let mut inputs = Vec::with_capacity(4);
-        inputs.push(0f32);
-        inputs.push(0f32);
-        inputs.push(0f32);
-        inputs.push(self.get_food_input());
 
-        //println!("{}", self.get_food_input());
+        inputs.append(&mut self.get_distance_inputs());
+        inputs.push(self.get_food_input());
 
         return inputs;
     }
@@ -286,6 +300,10 @@ impl Board {
             food: Point::random(width, height),
         };
     }
+
+    pub fn in_bounds(&self, x: isize, y: isize) -> bool {
+        return x >= 0 && y >= 0 && x < self.width as isize && y < self.height as isize;
+    } 
 
     pub fn regenerate_food(&mut self, snake_parts: &VecDeque<Point>) {
         loop {
